@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Smart Grid Energy Consumption Forecast</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
+  body {
+    margin: 0;
+    font-family: 'Montserrat', sans-serif;
+    background: #121212;
+    color: #f0f0f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+  }
+  header {
+    padding: 1rem 2rem;
+    text-align: center;
+    background: linear-gradient(45deg, #0077ff, #00c6ff);
+    width: 100%;
+    box-shadow: 0 3px 15px rgba(0,0,0,0.3);
+  }
+  header h1 {
+    margin: 0;
+    font-weight: 700;
+    font-size: 2rem;
+    letter-spacing: 0.05em;
+  }
+  main {
+    max-width: 900px;
+    margin: 2rem;
+    flex-grow: 1;
+    width: 100%;
+  }
+  .controls {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  label {
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    font-size: 0.9rem;
+  }
+  input[type=number], input[type=range] {
+    appearance: none;
+    width: 150px;
+    height: 10px;
+    border-radius: 5px;
+    background: #222;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #00c6ff;
+    cursor: pointer;
+    border: none;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #00c6ff;
+    cursor: pointer;
+    border: none;
+  }
+  .button-refresh {
+    cursor: pointer;
+    margin-top: 24px;
+    padding: 0.6rem 1.5rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 30px;
+    background: #00c6ff;
+    color: #121212;
+    box-shadow: 0 6px 12px rgba(0,198,255,0.7);
+    transition: background 0.3s ease;
+  }
+  .button-refresh:hover {
+    background: #0077ff;
+    box-shadow: 0 8px 20px rgba(0,119,255,0.9);
+  }
+  canvas {
+    background: #1e1e1e;
+    border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(0,198,255,0.3);
+  }
+  footer {
+    text-align: center;
+    font-size: 0.85rem;
+    padding: 1rem;
+    color: #666;
+    width: 100%;
+  }
+  footer a {
+    color: #00c6ff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  footer a:hover {
+    text-decoration: underline;
+  }
+  @media (max-width: 480px) {
+    .controls {
+      flex-direction: column;
+      align-items: center;
+    }
+    .control-group {
+      width: 100%;
+      max-width: 200px;
+      align-items: center;
+    }
+    input[type=number], input[type=range] {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Smart Grid Energy Consumption Forecast</h1>
+</header>
+<main>
+  <section class="controls" aria-label="Forecast controls">
+    <div class="control-group">
+      <label for="forecastDays">Forecast Horizon (days)</label>
+      <input type="number" id="forecastDays" min="1" max="30" step="1" value="7" />
+    </div>
+    <div class="control-group">
+      <label for="smoothingAlpha">Smoothing α (Alpha)</label>
+      <input type="range" id="smoothingAlpha" min="0.01" max="1" step="0.01" value="0.3" />
+    </div>
+    <button class="button-refresh" id="btnForecast">Update Forecast</button>
+  </section>
+  <section>
+    <canvas id="energyChart" aria-label="Energy consumption line chart" role="img"></canvas>
+  </section>
+</main>
+<footer>
+  &copy; 2024 Smart Grid Forecast &mdash; Developed by BLACKBOXAI
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+<script>
+  (() => {
+    const forecastDaysInput = document.getElementById('forecastDays');
+    const smoothingAlphaInput = document.getElementById('smoothingAlpha');
+    const btnForecast = document.getElementById('btnForecast');
+    const ctx = document.getElementById('energyChart').getContext('2d');
+
+    // Generate mock historical energy consumption data (daily for 60 days)
+    // with some seasonality and noise.
+    function generateHistoricalData(days) {
+      const data = [];
+      const baseDate = new Date();
+      baseDate.setHours(0,0,0,0);
+      baseDate.setDate(baseDate.getDate() - days);
+      for (let i = 0; i < days; i++) {
+        // Simulate daily pattern + weekly seasonality + random noise
+        const date = new Date(baseDate);
+        date.setDate(date.getDate() + i);
+        const dayOfWeek = date.getDay(); // 0-6 Sun-Sat
+        // Base consumption varies by day of week (weekend lower)
+        let baseConsumption = 50 + 10 * Math.sin(i/7 * 2*Math.PI);
+        baseConsumption += (dayOfWeek === 0 || dayOfWeek === 6) ? -10 : 0;
+        // random noise
+        const noise = (Math.random() - 0.5) * 5;
+        const consumption = Math.max(5, baseConsumption + noise);
+        data.push({ date: date.toISOString().slice(0,10), consumption });
+      }
+      return data;
+    }
+
+    // Simple Exponential Smoothing Forecast
+    // history: array of numbers
+    // alpha: smoothing factor 0-1
+    // n: forecast length
+    function exponentialSmoothingForecast(history, alpha, n) {
+      let level = history[0];
+      for (let i = 1; i < history.length; i++) {
+        level = alpha * history[i] + (1 - alpha) * level;
+      }
+      // forecast n points ahead, simple approach repeats level
+      return Array(n).fill(level);
+    }
+
+    // Format date as MMM dd
+    function formatDate(dateStr) {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    // Main function to draw chart
+    let chart = null;
+    function drawChart(historical, forecasted, forecastDays) {
+      const labels = [];
+      const historicalData = [];
+      const forecastData = [];
+      for(let i=0; i < historical.length; i++) {
+        labels.push(formatDate(historical[i].date));
+        historicalData.push(historical[i].consumption);
+        forecastData.push(null);
+      }
+      const lastDate = new Date(historical[historical.length-1].date);
+      for(let i=0; i < forecastDays; i++) {
+        lastDate.setDate(lastDate.getDate() + 1);
+        labels.push(formatDate(lastDate.toISOString().slice(0,10)));
+        forecastData.push(forecasted[i]);
+        historicalData.push(null);
+      }
+
+      const data = {
+        labels,
+        datasets: [
+          {
+            label: 'Historical Consumption',
+            data: historicalData,
+            borderColor: 'rgba(0,198,255,0.9)',
+            backgroundColor: 'rgba(0,198,255,0.2)',
+            borderWidth: 2,
+            fill: true,
+            spanGaps: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+          },
+          {
+            label: 'Forecasted Consumption',
+            data: forecastData,
+            borderColor: 'rgba(255,165,0,0.9)',
+            backgroundColor: 'rgba(255,165,0,0.2)',
+            borderWidth: 2,
+            borderDash: [10,5],
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+          }
+        ]
+      };
+
+      const options = {
+        responsive: true,
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            labels: { color: '#f0f0f0', font: { weight: '700', size: 14 } }
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: '#222',
+            titleFont: { weight: '700', size: 14 },
+            bodyFont: { size: 13 },
+            padding: 8,
+            caretSize: 6,
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#333' },
+            ticks: { color: '#ccc' }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#333' },
+            ticks: { color: '#ccc' },
+            title: {
+              display: true,
+              text: 'Energy Consumption (kWh)',
+              color: '#ddd',
+              font: { weight: '700', size: 14 }
+            }
+          }
+        }
+      };
+
+      if(chart) {
+        chart.data = data;
+        chart.options = options;
+        chart.update();
+      } else {
+        chart = new Chart(ctx, {
+          type: 'line',
+          data,
+          options
+        });
+      }
+    }
+
+    // Initialization
+    const historicalDataDays = 60;
+    const historicalData = generateHistoricalData(historicalDataDays);
+
+    function updateForecast() {
+      const forecastDays = parseInt(forecastDaysInput.value, 10);
+      let alpha = parseFloat(smoothingAlphaInput.value);
+      if (isNaN(forecastDays) || forecastDays < 1 || forecastDays > 30) {
+        alert('Forecast Horizon must be between 1 and 30 days.');
+        return;
+      }
+      if (isNaN(alpha) || alpha <= 0 || alpha > 1) {
+        alert('Smoothing Alpha must be between 0.01 and 1.');
+        return;
+      }
+      const history = historicalData.map(d => d.consumption);
+      const forecast = exponentialSmoothingForecast(history, alpha, forecastDays);
+      drawChart(historicalData, forecast, forecastDays);
+    }
+
+    btnForecast.addEventListener('click', () => {
+      updateForecast();
+    });
+
+    // Run initial forecast and chart draw
+    updateForecast();
+
+  })();
+</script>
+</body>
+</html>
+
